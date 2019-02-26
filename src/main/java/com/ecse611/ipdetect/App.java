@@ -1,70 +1,45 @@
 package com.ecse611.ipdetect;
 import java.io.File;
 
-import com.ecse611.ipdetect.RepoParser;
+import org.repodriller.RepoDriller;
+import org.repodriller.RepositoryMining;
+import org.repodriller.Study;
+import org.repodriller.filter.range.Commits;
+import org.repodriller.persistence.csv.CSVFile;
+import org.repodriller.scm.GitRepository;
 
-import com.github.javaparser.JavaParser;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.expr.MethodCallExpr;
-import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
-import com.google.common.base.Strings;
-import com.ecse611.ipdetect.DirExplorer;
+import com.github.javaparser.symbolsolver.model.resolution.TypeSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
+import com.ecse611.ipdetect.JavaParserVisitor;
 
-import java.io.IOException;
-
-/**
- * Hello world!
- *
- */
-public class App 
-{
+public class App implements Study 
+{	
 	public static void main( String[] args ) throws Exception
 	{	
-		RepoParser rp = new RepoParser();
-		rp.setProject_name("accumulo");
-		rp.setRepo_path("/Users/svysali/Desktop/ecse611/assignment/repos/");
-		//rp.printLogToCSV();
-		File projectDir = new File("/Users/svysali/Desktop/ecse611/assignment/repos/accumulo");
-        //listClasses(projectDir);
-		listMethodCalls(projectDir);
+		new RepoDriller().start(new App());
 	}
-	
-	private static void listMethodCalls(File projectDir) {
-        new DirExplorer((level, path, file) -> path.endsWith(".java"), (level, path, file) -> {
-            System.out.println(path);
-            System.out.println(Strings.repeat("=", path.length()));
-            try {
-                new VoidVisitorAdapter<Object>() {
-                    @Override
-                    public void visit(MethodCallExpr n, Object arg) {
-                        super.visit(n, arg);
-                        System.out.println(" [L " + n.getBegin().get().line + "] " + n);
-                    }
-                }.visit(JavaParser.parse(file), null);
-                System.out.println(); // empty line
-            } catch (IOException e) {
-                new RuntimeException(e);
-            }
-        }).explore(projectDir);
-    }
-	
-	public static void listClasses(File projectDir) {
-        new DirExplorer((level, path, file) -> path.endsWith(".java"), (level, path, file) -> {
-            System.out.println(path);
-            System.out.println(Strings.repeat("=", path.length()));
-            try {
-                new VoidVisitorAdapter<Object>() {
-                    @Override
-                    public void visit(ClassOrInterfaceDeclaration n, Object arg) {
-                        super.visit(n, arg);
-                        System.out.println(" * " + n.getName());
-                    }
-                }.visit(JavaParser.parse(file), null);
-                System.out.println(); // empty line
-            } catch (IOException e) {
-                new RuntimeException(e);
-            }
-        }).explore(projectDir);
-    }
+
+	public void execute() {
+		TypeSolver typeSolver = new CombinedTypeSolver(
+				new ReflectionTypeSolver(),
+				new JavaParserTypeSolver(new File("/Users/svysali/Desktop/ecse611/assignment/repos/PDS/src")));
+		try {
+			new RepositoryMining()
+			.in(GitRepository.singleProject("/Users/svysali/Desktop/ecse611/assignment/repos/PDS"))
+			.through(Commits.single("b775820e26d20e0cb720c4045561f25b0a0c7ef7"))
+			.process(new JavaParserVisitor(typeSolver),new CSVFile("devs.csv"))
+			.mine();
+		}catch(Exception e){
+			System.out.println("ERRORRRRRR!!!!!!");
+		}
+		/* replace through with : 			
+		 * .withCommits(
+					new OnlyModificationsWithFileTypes(Arrays.asList(".java"),
+					new OnlyNoMerge())
+				) 
+		 */
+	}
 }
 
