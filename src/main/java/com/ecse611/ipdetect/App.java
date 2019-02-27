@@ -29,7 +29,7 @@ public class App implements Study
 			new RepositoryMining()
 			.in(GitRepository.singleProject("/Users/svysali/Desktop/ecse611/assignment/repos/PDS"))
 			.through(Commits.single("b775820e26d20e0cb720c4045561f25b0a0c7ef7"))
-			.process(new JavaParserVisitor(typeSolver),new CSVFile("devs.csv"))
+			.process(new SpoonParserVisitor(),new CSVFile("devs.csv"))
 			.mine();
 		}catch(Exception e){
 			System.out.println("ERRORRRRRR!!!!!!");

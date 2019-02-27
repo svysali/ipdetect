@@ -2,6 +2,8 @@ package com.ecse611.ipdetect;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 import org.repodriller.domain.Commit;
@@ -47,7 +49,6 @@ public class JavaParserVisitor implements CommitVisitor {
 					ParseResult<CompilationUnit> cu = new JavaParser().parse(soFile);
 					cvisitor.visit(cu.getResult().get().getTypes(), null);
 				} catch (FileNotFoundException e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
 
@@ -78,6 +79,9 @@ public class JavaParserVisitor implements CommitVisitor {
 
 
 class CallOrInterfaceVisitor extends VoidVisitorAdapter<Void> {
+	HashMap<MethodDeclaration, ArrayList<ResolvedMethodDeclaration>> methods = 
+			new HashMap<MethodDeclaration, ArrayList<ResolvedMethodDeclaration>>();
+	
 	private TypeSolver typeSolver ;
 
 	public CallOrInterfaceVisitor(TypeSolver ts) {
@@ -91,8 +95,9 @@ class CallOrInterfaceVisitor extends VoidVisitorAdapter<Void> {
 				" implements " + n.getImplementedTypes().toString()
 				);
 		for(MethodDeclaration m: n.getMethods()) {
-			System.out.println("\t++ " + m.getNameAsString());
-			new MethodCallVisitor(this.getTypeSolver()).visit(m,null);
+			MethodCallVisitor mcv = new MethodCallVisitor(this.getTypeSolver());
+			mcv.visit(m,null);
+			methods.put(m, mcv.getCalledMethods());
 		}
 	}
 
@@ -106,8 +111,15 @@ class CallOrInterfaceVisitor extends VoidVisitorAdapter<Void> {
 }
 
 class MethodCallVisitor extends VoidVisitorAdapter<Void> {
+	private ArrayList<ResolvedMethodDeclaration> calledMethods;
 	private TypeSolver typeSolver ;   
+	
+	public MethodCallVisitor() {
+		this.setCalledMethods(new ArrayList<ResolvedMethodDeclaration>());
+	}
+	
 	public MethodCallVisitor(TypeSolver ts) {
+		this();
 		this.setTypeSolver(ts);
 	}
 	public void visit(MethodCallExpr mc, Void arg) {
@@ -115,7 +127,7 @@ class MethodCallVisitor extends VoidVisitorAdapter<Void> {
 		try {
 			ResolvedMethodDeclaration correspondingDeclaration = JavaParserFacade.get(this.getTypeSolver()).solve(mc).getCorrespondingDeclaration();
 			if (correspondingDeclaration instanceof JavaParserMethodDeclaration) {
-					System.out.println("\t>>>>"+mc.getName() + "->" + correspondingDeclaration.getQualifiedName());
+				this.getCalledMethods().add(correspondingDeclaration);
 			}
 		} catch(Exception E) {
 			//System.out.println(E.toString());
@@ -127,5 +139,13 @@ class MethodCallVisitor extends VoidVisitorAdapter<Void> {
 	}
 	public void setTypeSolver(TypeSolver typeSolver) {
 		this.typeSolver = typeSolver;
+	}
+
+	public ArrayList<ResolvedMethodDeclaration> getCalledMethods() {
+		return calledMethods;
+	}
+
+	public void setCalledMethods(ArrayList<ResolvedMethodDeclaration> calledMethods) {
+		this.calledMethods = calledMethods;
 	}
 }
