@@ -8,7 +8,6 @@
 	<groupId>com.ecse611.ipdetect</groupId>
 	<artifactId>ipdetect</artifactId>
 	<version>1.0-SNAPSHOT</version>
-
 	<name>ipdetect</name>
 	<!-- FIXME change it to the project's website -->
 	<url>http://www.example.com</url>
@@ -55,6 +54,11 @@
 			<groupId>fr.inria.gforge.spoon</groupId>
 			<artifactId>spoon-core</artifactId>
 			<version>7.3.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.jgrapht</groupId>
+			<artifactId>jgrapht-core</artifactId>
+			<version>1.3.0</version>
 		</dependency>
 	</dependencies>
 
