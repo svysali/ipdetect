@@ -26,6 +26,8 @@ public class App implements Study
 			new RepositoryMining()
 			.in(GitRepository.singleProject(Config.REPO_ROOT + Config.PROJECT))
 			.through(Commits.all())
+			//.through(Commits.range("start-hash","end-hash"))
+			
 			.filters(
 					new OnlyNoMerge()
 				)

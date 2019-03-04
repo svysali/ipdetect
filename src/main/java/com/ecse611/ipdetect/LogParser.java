@@ -37,7 +37,7 @@ public class LogParser implements Study {
 			.process(new LogMessageVisitor(Config.PROJECT),new CSVFile(Config.PROJECT+".csv"))
 			.mine();
 		}catch(Exception e){
-			System.out.println("ERRORRRRRR!!!!!!");
+			System.out.println("ERROR: " + e.getMessage());
 		}
 	}
 }
