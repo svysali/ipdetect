@@ -6,6 +6,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -18,7 +19,6 @@ import org.jgrapht.Graphs;
 import org.jgrapht.graph.DefaultDirectedWeightedGraph;
 import org.jgrapht.graph.DefaultWeightedEdge;
 import org.jgrapht.alg.shortestpath.DijkstraShortestPath;
-import org.repodriller.filter.range.Commits;
 import org.repodriller.scm.GitRepository;
 import org.repodriller.scm.SCM;
 
@@ -66,11 +66,9 @@ public class IPDetector {
 
 
 		Multimap<String, CommitObj> work_id_to_commits_map = null;
-		Long c_old_ts = null;
-		Long c_new_ts = null;
+		PrintWriter writer = null;
 		String c_old = null;
 		String c_new= null;
-		Integer count = 0;
 		try {	
 			work_id_to_commits_map =	generateIPPairs(project+".csv");
 		} catch(Exception e) {
@@ -78,8 +76,15 @@ public class IPDetector {
 			System.exit(1);
 		}	
 
+		try { 
+			writer = new PrintWriter(new File(project+"_results.csv"));
+			writer.write("work_id,x,y,score,isIP");
+		} catch(Exception e) {
+			logger.fatal("Could not create output file : " + project+"_results.csv" + e.getMessage() );
+			System.exit(1);
+		}				
+
 		for(String work_id:work_id_to_commits_map.keySet()) {
-			count+=1;
 			try {
 				List<CommitObj> commit_list = new ArrayList<CommitObj>(work_id_to_commits_map.get(work_id));
 				if(commit_list.size() <= 1) {
@@ -90,34 +95,31 @@ public class IPDetector {
 				Collections.sort(commit_list,new SortbyTS());
 				for (int i = 0; i < commit_list.size(); i++) {
 					c_old =  commit_list.get(i).getHash();
-					c_old_ts = commit_list.get(i).getTS();
 					List<String> mod_x = getMethodsModifiedAtCommit(repo,c_old);
 					if(mod_x.size() > 0) {
 						Graph<String, DefaultWeightedEdge> old_graph = getGraphFromJson(project + "/" + c_old + ".json","");
 						for (int j = i+1; j < commit_list.size(); j++) {
 							double score = 0.0;
 							c_new = commit_list.get(j).getHash();
-							c_new_ts = commit_list.get(j).getTS();
-							System.out.println("########################### " + (c_old_ts > c_new_ts) );
 							List<String> mod_y = getMethodsModifiedAtCommit(repo,c_new);
 							if(mod_y.size() > 0) {
 								Graph<String, DefaultWeightedEdge> new_graph = getGraphFromJson(project + "/" +c_new + ".json","");
 								score = getIPScore(project,old_graph,new_graph,mod_x,mod_y);
 							}	
 							boolean isIP = (score >= Weight.THRESHOLD) ? true : false;
-							System.out.println(work_id +"," + c_old + "," + c_new + "," + score + "," + isIP );
+							writer.write(work_id +"," + c_old + "," + c_new + "," + score + "," + isIP );
 						}
 					} else {
 						logger.info("No methods modified : " + c_old);
+						for (int j = i+1; j < commit_list.size(); j++) {
+							writer.write(work_id +"," + c_old + "," + c_new + "," + 0.0 + "," + false );
+						}
+
 					}	
 				}
 
 			} catch(Exception E) {
-				logger.error(work_id +"," + c_old + "," + c_new + ":" + E.getMessage());
-			}
-			//TBR: only for checking one whole loop.
-			if(count==3) {
-				break;
+				logger.error(project+ work_id +"," + c_old + "," + c_new + ":" + E.getMessage());
 			}
 		}
 
@@ -175,18 +177,20 @@ public class IPDetector {
 		}
 		logger.info("Generating json for: " + commit);
 		CtModel model = null;
+		MavenLauncher mlauncher = null;
+		Launcher launcher = null;
 		try {
 			repo.checkout(commit);
 			String source_dir = repo.info().getPath();
-			System.out.println(source_dir);
 
 			if((new File(source_dir+"/pom.xml").exists())) {
-				MavenLauncher mlauncher = new MavenLauncher(source_dir, MavenLauncher.SOURCE_TYPE.ALL_SOURCE);
+				mlauncher = new MavenLauncher(source_dir, MavenLauncher.SOURCE_TYPE.ALL_SOURCE);
 				mlauncher.getEnvironment().setIgnoreDuplicateDeclarations(true);
 				mlauncher.buildModel();
 				model = mlauncher.getModel();
 			} else {
-				Launcher launcher = new Launcher();
+				System.out.println("this is trouble");
+				launcher = new Launcher();
 				launcher.addInputResource(source_dir);
 				launcher.getEnvironment().setIgnoreDuplicateDeclarations(true);
 				launcher.buildModel();
@@ -204,63 +208,67 @@ public class IPDetector {
 			//Then go class by class to get other details we need
 			jGenerator.writeStartArray();
 			for(CtType<?> type:model.getAllTypes()) {
-				jGenerator.writeStartObject();
-				jGenerator.writeStringField("class_name", type.getQualifiedName());
-				jGenerator.writeFieldName("methods");
-				jGenerator.writeStartArray();
-				//Iterate through each method and collect details
-				for(CtMethod<?> method:type.getMethods()) { 
+				try {
 					jGenerator.writeStartObject();
-					jGenerator.writeStringField("method_name", method.getSignature());
-					jGenerator.writeNumberField("hashcode", method.toString().hashCode());
-					//Iterate through each method call
-
-					@SuppressWarnings({ "unchecked", "rawtypes" })
-					List<CtInvocation> method_calls = method
-					.filterChildren(new TypeFilter(CtInvocation.class))
-					.list();					
-
-					jGenerator.writeFieldName("calls"); // "messages" :
+					jGenerator.writeStringField("class_name", type.getQualifiedName());
+					jGenerator.writeFieldName("methods");
 					jGenerator.writeStartArray();
+					
+					//Iterate through each method and collect details
+					for(CtMethod<?> method:type.getMethods()) { 
+						jGenerator.writeStartObject();
+						jGenerator.writeStringField("method_name", method.getSignature());
+						jGenerator.writeNumberField("hashcode", method.toString().hashCode());
+						//Iterate through each method call
 
-					//Doesn't seem to be working for nested method calls
-					for(CtInvocation<?> mc:method_calls) {
-						try {
-							CtExecutableReference<?> method_executable = mc.getExecutable();
+						@SuppressWarnings({ "unchecked", "rawtypes" })
+						List<CtInvocation> method_calls = method
+							.filterChildren(new TypeFilter(CtInvocation.class))
+							.list();					
 
-							if(method_executable != null) {
-								CtTypeReference<?> declaring_class = method_executable.getDeclaringType();
+						jGenerator.writeFieldName("calls"); // "messages" :
+						jGenerator.writeStartArray();
+						
+						//Doesn't seem to be working for nested method calls
+						for(CtInvocation<?> mc:method_calls) {
+							try {
+								CtExecutableReference<?> method_executable = mc.getExecutable();
+
+								if(method_executable != null) {
+									CtTypeReference<?> declaring_class = method_executable.getDeclaringType();
 								//We are only interested in our own methods, not java lib methods.
-								if(declaring_class != null) {
 									if(classes.contains(declaring_class.getQualifiedName())) {							
 										jGenerator.writeString(getQSignature(method_executable));
-									}
+									}	
 								}	
-							}	
-						} catch(NullPointerException e) {
+							} catch(NullPointerException e) {
 							//
-						}	
-					}
-					jGenerator.writeEndArray();
-					try {
-						CtExecutableReference<?> overrides = method.getReference().getOverridingExecutable();
-						if(overrides != null) {
-							if(classes.contains(overrides.getDeclaringType().getQualifiedName())) {
-								jGenerator.writeStringField("overrides", getQSignature(overrides));
-							}
+							}	
 						}
-					}catch(Exception E){
-						logger.warn("Commit " + commit + ":" + method.getReference().getPath().toString() + " overrides could not be processed");
-					}	
+						jGenerator.writeEndArray();
+						try {
+							CtExecutableReference<?> overrides = method.getReference().getOverridingExecutable();
+							if(overrides != null) {
+								if(classes.contains(overrides.getDeclaringType().getQualifiedName())) {
+									jGenerator.writeStringField("overrides", getQSignature(overrides));
+								}
+							}
+						}catch(Exception E){
+							logger.warn("Commit " + commit + ":" + method.getReference().getPath().toString() + " overrides could not be processed");
+						}	
+						jGenerator.writeEndObject();
+					}//End of method for loop
+					jGenerator.writeEndArray();
 					jGenerator.writeEndObject();
+				} catch(Exception e) {
+					logger.error("Could not process class : " + type);
 				}
-				jGenerator.writeEndArray();
-				jGenerator.writeEndObject();
-			}
+			}//End of classes for loop	
 			jGenerator.writeEndArray();
 			jGenerator.close();
 		} catch(Exception E) {
-			logger.error("Commit BP2" + commit + " " +E.getMessage());
+			System.out.println("FINAL BLOCK");
+			logger.error("Commit " + commit + " " +E.getMessage());
 		} finally {
 			repo.reset();
 		}
@@ -425,8 +433,6 @@ public class IPDetector {
 		System.out.println("Work_ID Percentage \t:\t"+ (float)(work_id_ip/work_id_to_commits_map.keySet().size()));
 		System.out.println("Commits to be analyzed\t:\t"+ included_commits);
 	}	
-
-	/* .replaceAll("\\(.*\\)", "") to replace signature with name,wait to hear back from the authors to confirm this */
 
 }
 

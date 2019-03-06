@@ -1,5 +1,6 @@
 package com.ecse611.ipdetect;
 
+import java.util.Arrays;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -7,10 +8,13 @@ import org.repodriller.RepoDriller;
 import org.repodriller.RepositoryMining;
 import org.repodriller.Study;
 import org.repodriller.domain.Commit;
+import org.repodriller.filter.commit.OnlyInBranches;
+import org.repodriller.filter.commit.OnlyInMainBranch;
 import org.repodriller.filter.commit.OnlyNoMerge;
 import org.repodriller.filter.range.Commits;
 import org.repodriller.persistence.PersistenceMechanism;
 import org.repodriller.persistence.csv.CSVFile;
+import org.repodriller.scm.CollectConfiguration;
 import org.repodriller.scm.CommitVisitor;
 import org.repodriller.scm.GitRepository;
 import org.repodriller.scm.SCMRepository;
@@ -31,7 +35,9 @@ public class LogParser implements Study {
 			.in(GitRepository.singleProject(Config.REPO_ROOT+Config.PROJECT))
 			.through(Commits.all())
 			.filters(
-					new OnlyNoMerge()
+					new OnlyNoMerge(),
+					new OnlyInMainBranch()
+					
 				)
 			.reverseOrder()
 			.process(new LogMessageVisitor(),new CSVFile(Config.PROJECT+".csv"))
