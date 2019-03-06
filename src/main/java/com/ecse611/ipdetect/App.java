@@ -33,9 +33,9 @@ public class App implements Study
 				)
 			.collect(new CollectConfiguration().basicOnly())
 			.reverseOrder()
-			//.visitorsAreThreadSafe(true) // Threads are possible.
-			//.visitorsChangeRepoState(true) // Each thread needs its own copy of the repo.
-			//.withThreads()
+			.visitorsAreThreadSafe(true) // Threads are possible.
+			.visitorsChangeRepoState(true) // Each thread needs its own copy of the repo.
+			.withThreads(2)
 			.process(new SpoonParserVisitor(),new CSVFile("devs.csv"))
 			.mine();
 		}catch(Exception e){

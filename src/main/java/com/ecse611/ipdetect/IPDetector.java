@@ -12,13 +12,13 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
-
 import org.apache.log4j.Logger;
 import org.jgrapht.Graph;
 import org.jgrapht.Graphs;
 import org.jgrapht.graph.DefaultDirectedWeightedGraph;
 import org.jgrapht.graph.DefaultWeightedEdge;
 import org.jgrapht.alg.shortestpath.DijkstraShortestPath;
+import org.repodriller.filter.range.Commits;
 import org.repodriller.scm.GitRepository;
 import org.repodriller.scm.SCM;
 
@@ -51,69 +51,76 @@ public class IPDetector {
 	private static String repos_root = Config.REPO_ROOT;
 	private static String project = Config.PROJECT;
 
-	public static void main(String[] args) {
+	public static void main(String[] args) throws FileNotFoundException, IOException {
 		SCM repo = null;
 		try {		
 			repo = new GitRepository(repos_root+project);
 		} catch(Exception E) {
 			logger.fatal("Error initialising SCM repository. Quitting.");
-		}	
+			System.exit(1);
+		}
+
+		/*summarize("accumulo.csv");
+		summarize("ambari.csv");
+		summarize("cayenne.csv");*/
+
+
+		Multimap<String, CommitObj> work_id_to_commits_map = null;
 		Long c_old_ts = null;
 		Long c_new_ts = null;
 		String c_old = null;
 		String c_new= null;
 		Integer count = 0;
 		try {	
-			Multimap<String, CommitObj> work_id_to_commits_map =	generateIPPairs(project+".csv");
-			for(String work_id:work_id_to_commits_map.keySet()) {
-				count+=1;
-				System.out.println(work_id);
-				try {
-					List<CommitObj> commit_list = new ArrayList<CommitObj>(work_id_to_commits_map.get(work_id));
-					Collections.sort(commit_list,new SortbyTS());
-					if(commit_list.size() <= 1) {continue;}
-					for (int i = 0; i < commit_list.size(); i++) {
-						c_old =  commit_list.get(i).getHash();
-						c_old_ts = commit_list.get(i).getTS();
-						List<String> mod_x = getMethodsModifiedAtCommit(repo,c_old);
-						Graph<String, DefaultWeightedEdge> old_graph = getGraphFromJson(project + "/" + c_old + ".json","");
-						System.out.println("________________________________________________________________________________");
-						System.out.println("MMAT " + c_old + " : " + c_old_ts  );
-						for(String mod:mod_x) {
-							System.out.println(mod);
-						}
+			work_id_to_commits_map =	generateIPPairs(project+".csv");
+		} catch(Exception e) {
+			logger.fatal("Could not generate IP pairs for analysis from : " + project+".csv" + e.getMessage() );
+			System.exit(1);
+		}	
 
+		for(String work_id:work_id_to_commits_map.keySet()) {
+			count+=1;
+			try {
+				List<CommitObj> commit_list = new ArrayList<CommitObj>(work_id_to_commits_map.get(work_id));
+				if(commit_list.size() <= 1) {
+					logger.info("WORK-ID: " + work_id + " has <=1 commit. Skipping.");
+					continue;
+				}
+				logger.info("WORK-ID: " + work_id + " processing");
+				Collections.sort(commit_list,new SortbyTS());
+				for (int i = 0; i < commit_list.size(); i++) {
+					c_old =  commit_list.get(i).getHash();
+					c_old_ts = commit_list.get(i).getTS();
+					List<String> mod_x = getMethodsModifiedAtCommit(repo,c_old);
+					if(mod_x.size() > 0) {
+						Graph<String, DefaultWeightedEdge> old_graph = getGraphFromJson(project + "/" + c_old + ".json","");
 						for (int j = i+1; j < commit_list.size(); j++) {
+							double score = 0.0;
 							c_new = commit_list.get(j).getHash();
 							c_new_ts = commit_list.get(j).getTS();
-							System.out.println("MMAT NEW " + c_new + " : " + c_new_ts  );
+							System.out.println("########################### " + (c_old_ts > c_new_ts) );
 							List<String> mod_y = getMethodsModifiedAtCommit(repo,c_new);
-							Graph<String, DefaultWeightedEdge> new_graph = getGraphFromJson(project + "/" +c_new + ".json","");
-							for(String mod:mod_y) {
-								System.out.println(mod);
-							}
-							
-							boolean isIP = isIPCommit(project,old_graph,new_graph,mod_x,mod_y);
-							System.out.println(work_id +"," + c_old + "," + c_new + "," + isIP);
-						}	
-						
-					}
+							if(mod_y.size() > 0) {
+								Graph<String, DefaultWeightedEdge> new_graph = getGraphFromJson(project + "/" +c_new + ".json","");
+								score = getIPScore(project,old_graph,new_graph,mod_x,mod_y);
+							}	
+							boolean isIP = (score >= Weight.THRESHOLD) ? true : false;
+							System.out.println(work_id +"," + c_old + "," + c_new + "," + score + "," + isIP );
+						}
+					} else {
+						logger.info("No methods modified : " + c_old);
+					}	
+				}
 
-				} catch(Exception E) {
-					logger.error(work_id +"," + c_old + "," + c_new + ":" + E.getMessage());
-				}
-				//TBR: only for checking one whole loop.
-				if(count==3) {
-					break;
-				}
+			} catch(Exception E) {
+				logger.error(work_id +"," + c_old + "," + c_new + ":" + E.getMessage());
 			}
-		} catch (JsonProcessingException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			//TBR: only for checking one whole loop.
+			if(count==3) {
+				break;
+			}
 		}
+
 	}
 
 	public static List<String> getMethodsModifiedAtCommit(SCM repo,String commit) throws JsonSyntaxException, JsonIOException, FileNotFoundException {
@@ -129,7 +136,7 @@ public class IPDetector {
 		}
 		Multimap<String, Integer> method_map_commit = getMethodHashMap(getJsonArray(commit_json_file));
 		Multimap<String, Integer> method_map_parent = getMethodHashMap(getJsonArray(parent_commit_json_file));
-		
+
 		for(String method: method_map_commit.keySet()) {
 			if(method_map_parent.containsKey(method)) {
 				if(!method_map_parent.get(method).containsAll(method_map_commit.get(method))) {
@@ -139,14 +146,14 @@ public class IPDetector {
 		}
 		return mod_methods;
 	}
-	
+
 	private static JsonArray getJsonArray(String jsonFilePath) throws JsonSyntaxException, JsonIOException, FileNotFoundException {
 		Gson gson = new Gson();
 		File jsonFile = Paths.get(jsonFilePath).toFile();
 		JsonArray json = gson.fromJson(new FileReader(jsonFile), JsonArray.class);
 		return json;
 	}
-	
+
 	private static Multimap<String, Integer> getMethodHashMap(JsonArray json) {
 		Multimap<String, Integer> method_map = HashMultimap.create();
 		for(JsonElement c:json) {
@@ -159,28 +166,33 @@ public class IPDetector {
 		}
 		return method_map;
 	}
-	
-	
+
+
 	public static void generateJsonForCommit(SCM repo,String commit) {
 		String file_name = project + "/" + commit + ".json"; 
 		if(new File(file_name).exists()) {
 			return;
 		}
-
+		logger.info("Generating json for: " + commit);
+		CtModel model = null;
 		try {
 			repo.checkout(commit);
 			String source_dir = repo.info().getPath();
-			CtModel model = null;
+			System.out.println(source_dir);
+
 			if((new File(source_dir+"/pom.xml").exists())) {
-				MavenLauncher mlauncher = new MavenLauncher(source_dir, MavenLauncher.SOURCE_TYPE.APP_SOURCE);
+				MavenLauncher mlauncher = new MavenLauncher(source_dir, MavenLauncher.SOURCE_TYPE.ALL_SOURCE);
+				mlauncher.getEnvironment().setIgnoreDuplicateDeclarations(true);
 				mlauncher.buildModel();
 				model = mlauncher.getModel();
 			} else {
 				Launcher launcher = new Launcher();
 				launcher.addInputResource(source_dir);
+				launcher.getEnvironment().setIgnoreDuplicateDeclarations(true);
 				launcher.buildModel();
 				model = launcher.getModel();
 			}
+
 			JsonFactory jfactory = new JsonFactory();
 			JsonGenerator jGenerator = jfactory.createGenerator(new File(file_name), JsonEncoding.UTF8);
 
@@ -217,13 +229,13 @@ public class IPDetector {
 							CtExecutableReference<?> method_executable = mc.getExecutable();
 
 							if(method_executable != null) {
-								//We are only interested in our own methods, not java lib methods.
 								CtTypeReference<?> declaring_class = method_executable.getDeclaringType();
-
-
-								if(classes.contains(declaring_class.getQualifiedName())) {							
-									jGenerator.writeString(getQSignature(method_executable));
-								}
+								//We are only interested in our own methods, not java lib methods.
+								if(declaring_class != null) {
+									if(classes.contains(declaring_class.getQualifiedName())) {							
+										jGenerator.writeString(getQSignature(method_executable));
+									}
+								}	
 							}	
 						} catch(NullPointerException e) {
 							//
@@ -248,10 +260,8 @@ public class IPDetector {
 			jGenerator.writeEndArray();
 			jGenerator.close();
 		} catch(Exception E) {
-			logger.error("Commit " + commit + " " +E.getMessage());
-			E.getStackTrace();
-		} 
-		finally {
+			logger.error("Commit BP2" + commit + " " +E.getMessage());
+		} finally {
 			repo.reset();
 		}
 	}
@@ -260,57 +270,66 @@ public class IPDetector {
 		return e.getDeclaringType().getQualifiedName()+"#"+e.getSignature();
 	}
 
-	public static boolean isIPCommit(String project, Graph<String, DefaultWeightedEdge> old_graph,Graph<String, DefaultWeightedEdge> new_graph,List<String> mod_x,List<String> mod_y) throws JsonProcessingException, IOException {
+	public static double getIPScore(String project, Graph<String, DefaultWeightedEdge> old_graph,Graph<String, DefaultWeightedEdge> new_graph,List<String> mod_x,List<String> mod_y) throws JsonProcessingException, IOException {
 		double score = 0.0;
-		DefaultWeightedEdge e = new DefaultWeightedEdge();
-		
-		//Combine with second graph and add E_Same edges
-		Graphs.addGraph(new_graph, old_graph);
-		System.out.println("Number of vertices in combined: " + new_graph.vertexSet().size());
-		Integer count = 0;
-		for(String vertex:old_graph.vertexSet()) {
-			String new_vertex = "n__"+vertex;
-			if(new_graph.vertexSet().contains(new_vertex)) {
-				count+=1;
-				e = new_graph.addEdge(new_vertex, vertex);
-				if(e != null) { new_graph.setEdgeWeight(e, Weight.SAME);}
-				e = new_graph.addEdge(vertex, new_vertex);
-				if(e != null) { new_graph.setEdgeWeight(e, Weight.SAME);}
-			} 
-		}
-
-		System.out.println("no. of vertices with e_same edges: "+count);
-		
-		DijkstraShortestPath<String, DefaultWeightedEdge> dijkstraAlg =
-	            new DijkstraShortestPath<>(new_graph);
-		//Compute reciprocals and final value
 		double Sx = 0.0;
 		double Sy = 0.0;
 		if(!(mod_x.isEmpty() || mod_y.isEmpty())) {
-			//Calculate Sx
+			DefaultWeightedEdge e = new DefaultWeightedEdge();
+
+			//Combine with second graph and add E_Same edges
+			Graphs.addGraph(new_graph, old_graph);
+			System.out.println("Number of vertices in combined: " + new_graph.vertexSet().size());
+			Integer count = 0;
+			for(String vertex:old_graph.vertexSet()) {
+				String new_vertex = "n__"+vertex;
+				if(new_graph.vertexSet().contains(new_vertex)) {
+					count+=1;
+					e = new_graph.addEdge(new_vertex, vertex);
+					if(e != null) { new_graph.setEdgeWeight(e, Weight.SAME);}
+					e = new_graph.addEdge(vertex, new_vertex);
+					if(e != null) { new_graph.setEdgeWeight(e, Weight.SAME);}
+				} 
+			}
+
+			System.out.println("no. of vertices with e_same edges: "+count);
+
+			DijkstraShortestPath<String, DefaultWeightedEdge> dijkstraAlg =
+					new DijkstraShortestPath<>(new_graph);
+			/* Compute reciprocals for both commit x(old) and commit y(new)
+			 * 1) For each method Mx modified in commit x
+			 *   	Find the nearest method My modified in commit y
+			 * 2) Sx = average (reciprocal(nearest_method))
+			 * 3) For each method My modified in commit y
+			 *   	Find the nearest method Mx modified in commit x 
+			 * 4) Sy = average (reciprocal(nearest_method))
+			 * 5) Score is the maximum of average of Sx,Sy and Sy.  
+			 */
 			for(String Mx:mod_x) {
-				double nearest = 0.0;
+				double nearest = Double.POSITIVE_INFINITY;
 				for(String My:mod_y) {
 					nearest = Math.min(nearest, dijkstraAlg.getPathWeight(Mx, "n__"+My));
 				}
 				Sx+=(1/nearest);
 			}
 			Sx = Sx/mod_x.size();
-			//Calculate Sy
+
 			for(String My:mod_y) {
-				double nearest = 0.0;
+				double nearest = Double.POSITIVE_INFINITY;
 				for(String Mx:mod_x) {
 					nearest = Math.min(nearest, dijkstraAlg.getPathWeight("n__"+My,Mx));
 				}
 				Sy+=(1/nearest);
 			}
 			Sy = Sy/mod_y.size();
+
 			// = (max(1/2(Sx+Sy)),Sy)
-			score = Math.max((0.5*(Sx+Sy)), Sy);
+			score = Math.max(((Sx+Sy)/2), Sy);
+		} else {
+			//we shouldn't have this printed because, we already check in the for loop. but having it here as a precaution.
+			logger.info("No methods changed in one of the Commits. Skipping score calculation");
 		}	
-		//return result
-		if(score >= Weight.THRESHOLD) {return true;}
-		return false;
+		return score;
 	}
 
 	private static Graph<String,DefaultWeightedEdge> getGraphFromJson(String jsonFilePath,String prefix) throws JsonSyntaxException, JsonIOException, FileNotFoundException	{
@@ -356,7 +375,7 @@ public class IPDetector {
 
 	public static Multimap<String,CommitObj> generateIPPairs(String inputcsv) throws FileNotFoundException, IOException {
 		Multimap<String, CommitObj> work_id_to_commits_map = HashMultimap.create();
-		
+
 		try (BufferedReader br = new BufferedReader(new FileReader(inputcsv))) {
 			String line;
 			while ((line = br.readLine()) != null) {
@@ -369,6 +388,42 @@ public class IPDetector {
 			System.out.println("Could not convert csv to commit pair map");
 		}
 		return work_id_to_commits_map;
+	}
+
+	public static void summarize(String inputcsv) throws FileNotFoundException, IOException {
+		Multimap<String, CommitObj> work_id_to_commits_map = HashMultimap.create();
+		Integer total_commits = 0;
+		Integer commits_wo_workid = 0;
+		try (BufferedReader br = new BufferedReader(new FileReader(inputcsv))) {
+			String line;
+			while ((line = br.readLine()) != null) {
+				total_commits+=1;
+				String[] values = line.split(",");
+				if(values.length > 2) {
+					work_id_to_commits_map.put(values[2], new CommitObj(values[0],Long.parseLong(values[1])));
+				} else {
+					commits_wo_workid+=1;
+				} 
+			}
+		} catch(Exception E) {
+			System.out.println("Could not convert csv to commit pair map");
+		}
+		System.out.println("-----------------" + inputcsv + "-----------------");
+		System.out.println("Total Commits \t\t:\t"+total_commits);
+		System.out.println("Commits WO ID \t\t:\t"+commits_wo_workid);
+		System.out.println("Percentage \t\t:\t"+((float)(total_commits-commits_wo_workid)/total_commits));
+		System.out.println("Unique Work-IDs \t:\t"+ work_id_to_commits_map.keySet().size());
+		float work_id_ip = 0;
+		Integer included_commits = 0;
+		for(String work_id:work_id_to_commits_map.keySet()) {
+			if(work_id_to_commits_map.get(work_id).size() > 1) {
+				work_id_ip+=1;
+				included_commits+=work_id_to_commits_map.get(work_id).size();
+			}
+		}
+		System.out.println("Work_ID IP \t\t:\t"+work_id_ip);
+		System.out.println("Work_ID Percentage \t:\t"+ (float)(work_id_ip/work_id_to_commits_map.keySet().size()));
+		System.out.println("Commits to be analyzed\t:\t"+ included_commits);
 	}	
 
 	/* .replaceAll("\\(.*\\)", "") to replace signature with name,wait to hear back from the authors to confirm this */
@@ -385,18 +440,18 @@ class CommitObj{
 	public String getHash() {
 		return this.hash;
 	}
-	
+
 	public Long getTS() {
 		return this.timestamp;
 	}
-	
-	
+
+
 }
 
 class SortbyTS implements Comparator<CommitObj> 
 { 
 	public int compare(CommitObj a, CommitObj b) 
-    { 
-        return (int) (a.getTS() - b.getTS()); 
-    } 
+	{ 
+		return (int) (a.getTS() - b.getTS()); 
+	} 
 } 

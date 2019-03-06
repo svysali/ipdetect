@@ -13,15 +13,11 @@ public class SpoonParserVisitor implements CommitVisitor {
 	@Override
 	public void process(SCMRepository repo, Commit commit, PersistenceMechanism writer) {
 		try {
-			
 			IPDetector.generateJsonForCommit(repo.getScm(),commit.getHash());
 		} catch(Exception E) {
 			logger.error("Commit " + commit.getHash() + " " +E.getMessage());
 			E.getStackTrace();
 		} 
-		finally {
-			repo.getScm().reset();
-		}
 	}
 	
 

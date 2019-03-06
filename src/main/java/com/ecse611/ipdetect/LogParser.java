@@ -34,7 +34,7 @@ public class LogParser implements Study {
 					new OnlyNoMerge()
 				)
 			.reverseOrder()
-			.process(new LogMessageVisitor(Config.PROJECT),new CSVFile(Config.PROJECT+".csv"))
+			.process(new LogMessageVisitor(),new CSVFile(Config.PROJECT+".csv"))
 			.mine();
 		}catch(Exception e){
 			System.out.println("ERROR: " + e.getMessage());
@@ -45,13 +45,9 @@ public class LogParser implements Study {
 
 class LogMessageVisitor implements CommitVisitor {
 
-	private String project;
-	public LogMessageVisitor(String p) {
-		this.project = p;
-	}
 	@Override
 	public void process(SCMRepository repo, Commit commit, PersistenceMechanism writer) {
-		Pattern pattern = Pattern.compile(this.project+".?(\\d+)",Pattern.CASE_INSENSITIVE);
+		Pattern pattern = Pattern.compile(Config.WORK_ID_PREFIX+".?(\\d+)",Pattern.CASE_INSENSITIVE);
 		Matcher matcher = pattern.matcher(commit.getMsg());
 		String work_id = "";
 		if (matcher.find()) {
