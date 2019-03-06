@@ -128,13 +128,19 @@ public class IPDetector {
 	public static List<String> getMethodsModifiedAtCommit(SCM repo,String commit) throws JsonSyntaxException, JsonIOException, FileNotFoundException {
 		List<String> mod_methods = new ArrayList<String>();
 		String commit_json_file = project + "/" +commit + ".json"; 
-		if(!(new File(commit_json_file).exists())){
+		File commit_file = new File(commit_json_file); 
+		if(!commit_file.exists()){
 			generateJsonForCommit(repo,commit);
 		}
 		String parent_commit = repo.getCommit(commit).getParents().get(0);
 		String parent_commit_json_file = project + "/" +parent_commit + ".json";
-		if(!(new File(parent_commit_json_file).exists())){
+		File parent_commit_file = new File(parent_commit_json_file); 
+		if(!parent_commit_file.exists()){
 			generateJsonForCommit(repo,parent_commit);
+		}
+		if(!(commit_file.exists() && parent_commit_file.exists())){
+			logger.warn("Could not compute modified methods for : " +  commit);
+			return mod_methods;
 		}
 		Multimap<String, Integer> method_map_commit = getMethodHashMap(getJsonArray(commit_json_file));
 		Multimap<String, Integer> method_map_parent = getMethodHashMap(getJsonArray(parent_commit_json_file));
