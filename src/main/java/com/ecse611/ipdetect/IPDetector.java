@@ -84,8 +84,11 @@ public class IPDetector {
 			logger.fatal("Could not create output file : " + project+"_results.csv" + e.getMessage() );
 			System.exit(1);
 		}				
-
+		int count = 0;
 		for(String work_id:work_id_to_commits_map.keySet()) {
+			if(count++ < Config.SKIP_ROWS) {
+				continue;
+			}
 			try {
 				List<CommitObj> commit_list = new ArrayList<CommitObj>(work_id_to_commits_map.get(work_id));
 				if(commit_list.size() <= 1) {
@@ -441,8 +444,7 @@ public class IPDetector {
 		System.out.println("Work_ID IP \t\t:\t"+work_id_ip);
 		System.out.println("Work_ID Percentage \t:\t"+ (float)(work_id_ip/work_id_to_commits_map.keySet().size()));
 		System.out.println("Commits to be analyzed\t:\t"+ included_commits);
-	}	
-
+	}
 }
 
 class CommitObj{
