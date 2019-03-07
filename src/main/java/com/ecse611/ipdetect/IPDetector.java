@@ -15,6 +15,7 @@ import java.util.List;
 
 import org.apache.log4j.Logger;
 import org.jgrapht.Graph;
+import org.jgrapht.GraphPath;
 import org.jgrapht.Graphs;
 import org.jgrapht.graph.DefaultDirectedWeightedGraph;
 import org.jgrapht.graph.DefaultWeightedEdge;
@@ -78,7 +79,7 @@ public class IPDetector {
 
 		try { 
 			writer = new PrintWriter(new File(project+"_results.csv"));
-			writer.write("work_id,x,y,score,isIP");
+			writer.println("work_id,x,y,score,isIP");
 		} catch(Exception e) {
 			logger.fatal("Could not create output file : " + project+"_results.csv" + e.getMessage() );
 			System.exit(1);
@@ -91,36 +92,38 @@ public class IPDetector {
 					logger.info("WORK-ID: " + work_id + " has <=1 commit. Skipping.");
 					continue;
 				}
-				logger.info("WORK-ID: " + work_id + " processing");
+				logger.info("WORK-ID: " + work_id + " processing ");
 				Collections.sort(commit_list,new SortbyTS());
 				for (int i = 0; i < commit_list.size(); i++) {
 					c_old =  commit_list.get(i).getHash();
 					List<String> mod_x = getMethodsModifiedAtCommit(repo,c_old);
 					if(mod_x.size() > 0) {
-						Graph<String, DefaultWeightedEdge> old_graph = getGraphFromJson(project + "/" + c_old + ".json","");
 						for (int j = i+1; j < commit_list.size(); j++) {
 							double score = 0.0;
 							c_new = commit_list.get(j).getHash();
 							List<String> mod_y = getMethodsModifiedAtCommit(repo,c_new);
 							if(mod_y.size() > 0) {
-								Graph<String, DefaultWeightedEdge> new_graph = getGraphFromJson(project + "/" +c_new + ".json","");
-								score = getIPScore(project,old_graph,new_graph,mod_x,mod_y);
+								score = getIPScore(project,c_old,c_new,mod_x,mod_y);
 							}	
 							boolean isIP = (score >= Weight.THRESHOLD) ? true : false;
-							writer.write(work_id +"," + c_old + "," + c_new + "," + score + "," + isIP );
+							writer.println(work_id +"," + c_old + "," + c_new + "," + score + "," + isIP );
 						}
 					} else {
 						logger.info("No methods modified : " + c_old);
 						for (int j = i+1; j < commit_list.size(); j++) {
-							writer.write(work_id +"," + c_old + "," + c_new + "," + 0.0 + "," + false );
+							writer.println(work_id +"," + c_old + "," + c_new + "," + 0.0 + "," + false );
 						}
 
 					}	
 				}
 
 			} catch(Exception E) {
-				logger.error(project+ work_id +"," + c_old + "," + c_new + ":" + E.getMessage());
+				logger.error(project+ "," + work_id +"," + c_old + "," + c_new + ":" + E.getMessage());
 			}
+			writer.flush();
+		}
+		if(writer != null) {
+			writer.close();
 		}
 
 	}
@@ -189,18 +192,22 @@ public class IPDetector {
 			repo.checkout(commit);
 			String source_dir = repo.info().getPath();
 
-			if((new File(source_dir+"/pom.xml").exists())) {
+			//if((new File(source_dir+"/pom.xml").exists())) {
+			try {
 				mlauncher = new MavenLauncher(source_dir, MavenLauncher.SOURCE_TYPE.ALL_SOURCE);
 				mlauncher.getEnvironment().setIgnoreDuplicateDeclarations(true);
 				mlauncher.buildModel();
 				model = mlauncher.getModel();
-			} else {
-				System.out.println("this is trouble");
-				launcher = new Launcher();
-				launcher.addInputResource(source_dir);
-				launcher.getEnvironment().setIgnoreDuplicateDeclarations(true);
-				launcher.buildModel();
-				model = launcher.getModel();
+			} catch (Exception e) {
+				try {
+					launcher = new Launcher();
+					launcher.addInputResource(source_dir);
+					launcher.getEnvironment().setIgnoreDuplicateDeclarations(true);
+					launcher.buildModel();
+					model = launcher.getModel();
+				} catch (Exception E) {
+					throw new Exception("Both launchers did not work");
+				}	 
 			}
 
 			JsonFactory jfactory = new JsonFactory();
@@ -273,7 +280,6 @@ public class IPDetector {
 			jGenerator.writeEndArray();
 			jGenerator.close();
 		} catch(Exception E) {
-			System.out.println("FINAL BLOCK");
 			logger.error("Commit " + commit + " " +E.getMessage());
 		} finally {
 			repo.reset();
@@ -284,29 +290,26 @@ public class IPDetector {
 		return e.getDeclaringType().getQualifiedName()+"#"+e.getSignature();
 	}
 
-	public static double getIPScore(String project, Graph<String, DefaultWeightedEdge> old_graph,Graph<String, DefaultWeightedEdge> new_graph,List<String> mod_x,List<String> mod_y) throws JsonProcessingException, IOException {
+	public static double getIPScore(String project, String c_old ,String c_new,List<String> mod_x,List<String> mod_y) throws JsonProcessingException, IOException {
 		double score = 0.0;
 		double Sx = 0.0;
 		double Sy = 0.0;
 		if(!(mod_x.isEmpty() || mod_y.isEmpty())) {
 			DefaultWeightedEdge e = new DefaultWeightedEdge();
-
+			Graph<String, DefaultWeightedEdge> old_graph = getGraphFromJson(project + "/" + c_old + ".json","");
+			Graph<String, DefaultWeightedEdge> new_graph = getGraphFromJson(project + "/" +c_new + ".json","n__");
 			//Combine with second graph and add E_Same edges
 			Graphs.addGraph(new_graph, old_graph);
-			System.out.println("Number of vertices in combined: " + new_graph.vertexSet().size());
-			Integer count = 0;
+			
 			for(String vertex:old_graph.vertexSet()) {
 				String new_vertex = "n__"+vertex;
 				if(new_graph.vertexSet().contains(new_vertex)) {
-					count+=1;
 					e = new_graph.addEdge(new_vertex, vertex);
 					if(e != null) { new_graph.setEdgeWeight(e, Weight.SAME);}
 					e = new_graph.addEdge(vertex, new_vertex);
 					if(e != null) { new_graph.setEdgeWeight(e, Weight.SAME);}
 				} 
 			}
-
-			System.out.println("no. of vertices with e_same edges: "+count);
 
 			DijkstraShortestPath<String, DefaultWeightedEdge> dijkstraAlg =
 					new DijkstraShortestPath<>(new_graph);
