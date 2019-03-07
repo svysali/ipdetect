@@ -86,7 +86,7 @@ public class IPDetector {
 		}				
 		int count = 0;
 		for(String work_id:work_id_to_commits_map.keySet()) {
-			if(count++ < Config.SKIP_ROWS) {
+			if(count++ < Config.START_ROW) {
 				continue;
 			}
 			try {
@@ -124,6 +124,9 @@ public class IPDetector {
 				logger.error(project+ "," + work_id +"," + c_old + "," + c_new + ":" + E.getMessage());
 			}
 			writer.flush();
+			if(count == Config.END_ROW ) {
+				break;
+			}
 		}
 		if(writer != null) {
 			writer.close();
