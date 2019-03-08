@@ -114,7 +114,7 @@ public class IPDetector {
 					} else {
 						logger.info("No methods modified : " + c_old);
 						for (int j = i+1; j < commit_list.size(); j++) {
-							writer.println(work_id +"," + c_old + "," + c_new + "," + 0.0 + "," + false );
+							writer.println(work_id +"," + c_old + "," + commit_list.get(j).getHash() + "," + 0.0 + "," + false );
 						}
 
 					}	
