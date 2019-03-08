@@ -2,6 +2,7 @@ package com.ecse611.ipdetect;
 import com.ecse611.ipdetect.Weight;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
@@ -11,11 +12,20 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVPrinter;
+
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.Arrays;
+
 
 import org.apache.log4j.Logger;
 import org.jgrapht.Graph;
-import org.jgrapht.GraphPath;
 import org.jgrapht.Graphs;
 import org.jgrapht.graph.DefaultDirectedWeightedGraph;
 import org.jgrapht.graph.DefaultWeightedEdge;
@@ -27,7 +37,7 @@ import com.fasterxml.jackson.core.JsonEncoding;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -67,24 +77,28 @@ public class IPDetector {
 
 
 		Multimap<String, CommitObj> work_id_to_commits_map = null;
-		PrintWriter writer = null;
-		String c_old = null;
-		String c_new= null;
+		String output_csv = new StringBuilder().append(project).append("_results.csv").toString();
+		BufferedWriter writer = null;
+		CSVPrinter csvPrinter = null;
+				
+
 		try {	
 			work_id_to_commits_map =	generateIPPairs(project+".csv");
 		} catch(Exception e) {
-			logger.fatal("Could not generate IP pairs for analysis from : " + project+".csv" + e.getMessage() );
+			logger.fatal("Could not generate IP pairs for analysis");
 			System.exit(1);
 		}	
 
 		try { 
-			writer = new PrintWriter(new File(project+"_results.csv"));
-			writer.println("work_id,x,y,score,isIP");
+			writer = Files.newBufferedWriter(Paths.get(output_csv));
+			csvPrinter = new CSVPrinter(writer, CSVFormat.DEFAULT
+	                .withHeader("ID", "X", "Y", "Score","isIP"));
 		} catch(Exception e) {
-			logger.fatal("Could not create output file : " + project+"_results.csv" + e.getMessage() );
+			logger.fatal("Could not create output file");
 			System.exit(1);
-		}				
-		int count = 0;
+		}
+
+		int count =0;
 		for(String work_id:work_id_to_commits_map.keySet()) {
 			if(count++ < Config.START_ROW) {
 				continue;
@@ -95,40 +109,45 @@ public class IPDetector {
 					logger.info("WORK-ID: " + work_id + " has <=1 commit. Skipping.");
 					continue;
 				}
-				logger.info("WORK-ID: " + work_id + " processing ");
+				logger.info(new StringBuilder().append("WORK-ID: ").append(work_id).append(" processing ").toString());
 				Collections.sort(commit_list,new SortbyTS());
-				for (int i = 0; i < commit_list.size(); i++) {
-					c_old =  commit_list.get(i).getHash();
+				for (int i = 0; i < (commit_list.size()-1); i++) {
+					String c_old =  commit_list.get(i).getHash();
+					
 					List<String> mod_x = getMethodsModifiedAtCommit(repo,c_old);
-					if(mod_x.size() > 0) {
+					if(mod_x.size() > 0 && mod_x.size() <= 50 ) {
 						for (int j = i+1; j < commit_list.size(); j++) {
 							double score = 0.0;
-							c_new = commit_list.get(j).getHash();
+							String c_new = commit_list.get(j).getHash();
 							List<String> mod_y = getMethodsModifiedAtCommit(repo,c_new);
-							if(mod_y.size() > 0) {
+							if(mod_y.size() > 0 && mod_y.size() <=50) {
 								score = getIPScore(project,c_old,c_new,mod_x,mod_y);
 							}	
 							boolean isIP = (score >= Weight.THRESHOLD) ? true : false;
-							writer.println(work_id +"," + c_old + "," + c_new + "," + score + "," + isIP );
+							csvPrinter.printRecord(work_id,c_old,c_new,score,isIP);  
 						}
 					} else {
-						logger.info("No methods modified : " + c_old);
 						for (int j = i+1; j < commit_list.size(); j++) {
-							writer.println(work_id +"," + c_old + "," + commit_list.get(j).getHash() + "," + 0.0 + "," + false );
+							csvPrinter.printRecord(work_id,c_old,commit_list.get(j).getHash(),0,false);  
 						}
 
 					}	
 				}
 
 			} catch(Exception E) {
-				logger.error(project+ "," + work_id +"," + c_old + "," + c_new + ":" + E.getMessage());
+				StringBuilder sb = new StringBuilder();
+				sb.append(work_id);
+				sb.append(":");
+				sb.append(E.getMessage());
+				logger.error("ERROR");
 			}
-			writer.flush();
-			if(count == Config.END_ROW ) {
+			csvPrinter.flush();
+			if(count == Config.END_ROW) {
 				break;
 			}
 		}
-		if(writer != null) {
+		
+			if(writer != null) {
 			writer.close();
 		}
 
@@ -136,13 +155,13 @@ public class IPDetector {
 
 	public static List<String> getMethodsModifiedAtCommit(SCM repo,String commit) throws JsonSyntaxException, JsonIOException, FileNotFoundException {
 		List<String> mod_methods = new ArrayList<String>();
-		String commit_json_file = project + "/" +commit + ".json"; 
+		String commit_json_file = new StringBuilder().append(project).append("/").append(commit).append(".json").toString(); 
 		File commit_file = new File(commit_json_file); 
 		if(!commit_file.exists()){
 			generateJsonForCommit(repo,commit);
 		}
 		String parent_commit = repo.getCommit(commit).getParents().get(0);
-		String parent_commit_json_file = project + "/" +parent_commit + ".json";
+		String parent_commit_json_file = new StringBuilder().append(project).append("/").append(parent_commit).append(".json").toString(); 
 		File parent_commit_file = new File(parent_commit_json_file); 
 		if(!parent_commit_file.exists()){
 			generateJsonForCommit(repo,parent_commit);
@@ -151,12 +170,11 @@ public class IPDetector {
 			logger.warn("Could not compute modified methods for : " +  commit);
 			return mod_methods;
 		}
-		Multimap<String, Integer> method_map_commit = getMethodHashMap(getJsonArray(commit_json_file));
-		Multimap<String, Integer> method_map_parent = getMethodHashMap(getJsonArray(parent_commit_json_file));
-
+		Map<String, Integer> method_map_commit = getMethodHashMap(commit_json_file);
+		Map<String, Integer> method_map_parent = getMethodHashMap(parent_commit_json_file);
 		for(String method: method_map_commit.keySet()) {
 			if(method_map_parent.containsKey(method)) {
-				if(!method_map_parent.get(method).containsAll(method_map_commit.get(method))) {
+				if(method_map_commit.get(method).intValue() != method_map_parent.get(method).intValue()) {
 					mod_methods.add(method);
 				}
 			}
@@ -171,13 +189,17 @@ public class IPDetector {
 		return json;
 	}
 
-	private static Multimap<String, Integer> getMethodHashMap(JsonArray json) {
-		Multimap<String, Integer> method_map = HashMultimap.create();
-		for(JsonElement c:json) {
+	private static Map<String, Integer> getMethodHashMap(String commitJsonFile) throws JsonSyntaxException, JsonIOException, FileNotFoundException {
+		Map<String, Integer> method_map = new HashMap<String,Integer>();
+		for(JsonElement c:getJsonArray(commitJsonFile)) {
 			String current_class = c.getAsJsonObject().get("class_name").getAsString();
 			for(JsonElement method:c.getAsJsonObject().get("methods").getAsJsonArray()) {
 				JsonObject m = method.getAsJsonObject();
-				String current_method = current_class+"#"+m.get("method_name").getAsString();
+				StringBuilder sb = new StringBuilder();
+					sb.append(current_class);
+					sb.append("#");
+					sb.append(m.get("method_name").getAsString());
+				String current_method = sb.toString();
 				method_map.put(current_method,m.get("hashcode").getAsInt());
 			}
 		}
@@ -348,10 +370,7 @@ public class IPDetector {
 
 			// = (max(1/2(Sx+Sy)),Sy)
 			score = Math.max(((Sx+Sy)/2), Sy);
-		} else {
-			//we shouldn't have this printed because, we already check in the for loop. but having it here as a precaution.
-			logger.info("No methods changed in one of the Commits. Skipping score calculation");
-		}	
+		} 	
 		return score;
 	}
 
@@ -396,8 +415,8 @@ public class IPDetector {
 		return g;
 	}
 
-	public static Multimap<String,CommitObj> generateIPPairs(String inputcsv) throws FileNotFoundException, IOException {
-		Multimap<String, CommitObj> work_id_to_commits_map = HashMultimap.create();
+	public static Multimap<String, CommitObj> generateIPPairs(String inputcsv) throws FileNotFoundException, IOException {
+		Multimap<String, CommitObj> work_id_to_commits_map = ArrayListMultimap.create();
 
 		try (BufferedReader br = new BufferedReader(new FileReader(inputcsv))) {
 			String line;
@@ -408,13 +427,13 @@ public class IPDetector {
 				} 
 			}
 		} catch(Exception E) {
-			System.out.println("Could not convert csv to commit pair map");
+			logger.fatal("Could not convert csv to commit pair map");
 		}
-		return work_id_to_commits_map;
+		return work_id_to_commits_map ;
 	}
 
 	public static void summarize(String inputcsv) throws FileNotFoundException, IOException {
-		Multimap<String, CommitObj> work_id_to_commits_map = HashMultimap.create();
+		Multimap<String, CommitObj> work_id_to_commits_map = ArrayListMultimap.create();
 		Integer total_commits = 0;
 		Integer commits_wo_workid = 0;
 		try (BufferedReader br = new BufferedReader(new FileReader(inputcsv))) {
@@ -465,6 +484,20 @@ class CommitObj{
 		return this.timestamp;
 	}
 
+	@Override
+	public boolean equals(Object obj) {
+	    if (obj == null) return false;
+	    if (!(obj instanceof CommitObj))
+	        return false;
+	    if (obj == this)
+	        return true;
+	    return this.hash == ((CommitObj) obj).getHash();
+	}
+	
+	@Override
+	public int hashCode() {
+	    return hash.hashCode();
+	}
 
 }
 
