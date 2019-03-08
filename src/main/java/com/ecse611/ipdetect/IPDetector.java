@@ -137,9 +137,10 @@ public class IPDetector {
 			} catch(Exception E) {
 				StringBuilder sb = new StringBuilder();
 				sb.append(work_id);
+				sb.append(work_id);
 				sb.append(":");
 				sb.append(E.getMessage());
-				logger.error("ERROR");
+				logger.error(sb.toString());
 			}
 			csvPrinter.flush();
 			if(count == Config.END_ROW) {
