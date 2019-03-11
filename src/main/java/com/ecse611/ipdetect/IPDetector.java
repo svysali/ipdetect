@@ -100,7 +100,7 @@ public class IPDetector {
 		}
 
 		int count =0;
-		Scanner s = new Scanner(new File("cayenne_results/cc_aa"));
+		Scanner s = new Scanner(new File("cayenne_results/cc_ac"));
 		ArrayList<String> work_id_tbp = new ArrayList<String>();
 		while (s.hasNext()){
 			work_id_tbp.add(s.next());
