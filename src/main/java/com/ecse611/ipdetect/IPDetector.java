@@ -15,6 +15,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Scanner;
 
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
@@ -99,7 +100,13 @@ public class IPDetector {
 		}
 
 		int count =0;
-		for(String work_id:work_id_to_commits_map.keySet()) {
+		Scanner s = new Scanner(new File("cayenne_results/cc_aa"));
+		ArrayList<String> work_id_tbp = new ArrayList<String>();
+		while (s.hasNext()){
+			work_id_tbp.add(s.next());
+		}
+		s.close();
+		for(String work_id:work_id_tbp) {
 			if(count++ < Config.START_ROW) {
 				continue;
 			}
